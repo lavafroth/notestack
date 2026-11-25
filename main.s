@@ -37,6 +37,9 @@ note_peek:
         lea rsi, [rsp] # onto the stack
         syscall
 
+        cmp al, 4
+        jnz exit_malformed_file
+
         xor rsi, rsi
         mov esi, dword ptr [rsp]
         add esi, 4
@@ -72,7 +75,7 @@ note_peek:
         syscall
 
         add rsp, r15
-        jmp close_and_exit
+        jmp exit_file_close
         
 
 
@@ -100,7 +103,7 @@ add_note:
         jz empty_note_init
 
         cmp al, 12
-        jnz close_and_exit # TODO: report malformed file
+        jnz exit_malformed_file
 
         mov rax, 8 # lseek
         mov rdi, rbx
@@ -149,14 +152,6 @@ add_note:
         ptrchunk_deinit:
                 add rsp, 12 # ptrchunk read
 
-        close_and_exit:
-
-                mov rax, 3 # close
-                mov rdi, rbx
-                syscall
-
-                jmp exit_clean
-
         empty_note_init:
                 mov rdi, [rsp + 36]
                 call strlen
@@ -182,6 +177,15 @@ add_note:
 
                 jmp ptrchunk_deinit
 
+exit_malformed_file:
+        mov rax, 1
+        mov rdi, 2
+        lea rsi, [rip + str_malformed_file]
+        mov rdx, offset strlen_malformed_file
+        syscall
+
+        jmp exit_file_close
+
 done_note:
 
 
@@ -201,7 +205,7 @@ done_note:
         syscall
         
         cmp al, 12
-        jnz close_and_exit # TODO: report malformed file
+        jnz exit_malformed_file
 
         mov rax, 8
         mov rdi, rbx
@@ -228,7 +232,7 @@ done_note:
         mov rdx, 4
         syscall
 
-        jmp close_and_exit
+        jmp exit_file_close
 
 # returns the length of the string _including the null terminator_
 strlen:
@@ -280,6 +284,11 @@ help_note_add:
         syscall
         jmp exit_clean
 
+exit_file_close:
+        mov rax, 3 # close
+        mov rdi, rbx
+        syscall
+
 exit_clean:
         mov rax, 0x3c
         mov rdi, 0x0
@@ -294,6 +303,9 @@ help_note_add_str:
         .ascii "usage: notestack add 'your next todo'\n"
         help_note_add_str_len = . - help_note_add_str
         
+str_malformed_file:
+        .ascii "error: malformed file: failed to read note stack file header\n"
+        strlen_malformed_file = . - str_malformed_file
 
 add_str:
         .asciz "add"
