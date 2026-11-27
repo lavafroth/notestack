@@ -6,65 +6,57 @@ _start:
         jl help
         mov rdi, [rsp+16] # argv[1]
 
-        lea rsi, add_str
+        lea rsi, str_add
         call strcmp
         test al, al
         jz add_note
 
-        lea rsi, done_str
+        lea rsi, str_done
         call strcmp
         test al, al
         jz done_note
 
-        lea rsi, peek_str
+        lea rsi, str_peek
         call strcmp
         test al, al
         jz note_peek
 
-        jmp exit_clean
+        jmp help
+
+# non following call convention: put how much to read in register rdx
+note_read:
+        xor rax, rax
+        lea rsi, [rsp+8]
+        mov rdi, rbx
+        syscall
+        ret
 
 note_peek:
-
         mov rsi, 0
         lea rdi, note_file
         mov rax, 2 # open
         syscall
         mov rbx, rax
 
-        mov rax, 0     # read
         mov rdx, 4     # 4 bytes top
-        mov rdi, rbx   # from the notes file
-        lea rsi, [rsp] # onto the stack
-        syscall
+        call note_read
 
         cmp al, 4
         jnz exit_malformed_file
 
-        xor rsi, rsi
-        mov esi, dword ptr [rsp]
-        add esi, 4
+        add eax, dword ptr [rsp]
+        mov rsi, rax
 
-        mov rax, 8 # lseek
-        mov rdi, rbx
-        mov rdx, 0
-        syscall
+        call seek_from_start
 
-        mov rax, 0     # read
         mov rdx, 4     # 4 bytes length
-        mov rdi, rbx   # from the notes file
-        lea rsi, [rsp] # onto the stack
-        syscall
+        call note_read
 
-        xor r15, r15
         mov r15d, dword ptr [rsp]
         sub rsp, r15
 
-        
-        mov rax, 0 # read the note
-        mov rdx, r15   # of length
-        mov rdi, rbx   # from the notes file
-        lea rsi, [rsp] # onto the stack
-        syscall
+        mov rdx, r15
+        call note_read
 
         mov byte ptr [rsp+r15-1], 0xa
 
@@ -78,6 +70,13 @@ note_peek:
         jmp exit_file_close
         
 
+# set rsi to offset
+seek_from_start:
+        mov rax, 8
+        mov rdi, rbx
+        cqo
+        syscall
+        ret
 
 add_note:
 
@@ -93,11 +92,8 @@ add_note:
 
         sub rsp, 12 # ptrchunk read
         
-        mov rax, 0     # read
         mov rdx, 12     # 4 bytes top, 4 bytes parent, 4 bytes length
-        mov rdi, rbx   # from the notes file
-        lea rsi, [rsp] # onto the stack
-        syscall
+        call note_read
 
         test al, al
         jz empty_note_init
@@ -127,18 +123,15 @@ add_note:
         mov rdx, 8
         syscall
 
-        xor rdx, rdx
+        cqo
         mov edx, dword ptr [rsp+4]
         mov rsi, [rsp+36]
         mov rdi, rbx
         mov rax, 1
         syscall
 
-        mov rax, 8 # lseek
-        mov rdi, rbx
-        mov rsi, 0
-        mov rdx, 0
-        syscall
+        xor rsi, rsi
+        call seek_from_start
 
         mov rax, 1
         mov rdi, rbx
@@ -146,11 +139,7 @@ add_note:
         mov rdx, 4
         syscall
 
-
         jmp ptrchunk_deinit
-
-        ptrchunk_deinit:
-                add rsp, 12 # ptrchunk read
 
         empty_note_init:
                 mov rdi, [rsp + 36]
@@ -188,7 +177,6 @@ exit_malformed_file:
 
 done_note:
 
-
         mov rdx, 0600
         mov rsi, 66 # (O_RDWR = 2) | (O_CREAT = 64)
         lea rdi, note_file
@@ -198,33 +186,20 @@ done_note:
 
         sub rsp, 12 # ptrchunk read
         
-        mov rax, 0     # read
         mov rdx, 12    # 4 bytes top, 4 bytes parent, 4 bytes length
-        mov rdi, rbx   # from the notes file
-        lea rsi, [rsp] # onto the stack
-        syscall
+        call note_read
         
         cmp al, 12
         jnz exit_malformed_file
 
-        mov rax, 8
-        mov rdi, rbx
-        xor rsi, rsi
         mov esi, dword ptr [rsp]
-        mov rdx, 0
-        syscall
+        call seek_from_start
 
-        mov rax, 0     # read
         mov rdx, 4     # 4 bytes parent pointer
-        mov rdi, rbx
-        lea rsi, [rsp]
-        syscall
-        
-        mov rax, 8
-        mov rdi, rbx
+        call note_read
+
         xor rsi, rsi
-        mov rdx, 0
-        syscall
+        call seek_from_start
 
         mov rax, 1
         mov rdi, rbx
@@ -279,10 +254,13 @@ help:
 help_note_add:
         mov rax, 1
         mov rdi, 1
-        lea rsi, [rip + help_note_add_str]
-        mov rdx, offset help_note_add_str_len
+        lea rsi, [rip + help_note_str_add]
+        mov rdx, offset help_note_str_add_len
         syscall
         jmp exit_clean
+
+ptrchunk_deinit:
+        add rsp, 12 # ptrchunk read
 
 exit_file_close:
         mov rax, 3 # close
@@ -299,21 +277,21 @@ help_str:
         .ascii "usage: notestack [add | done | peek] ...\n"
         help_str_len = . - help_str
 
-help_note_add_str:
+help_note_str_add:
         .ascii "usage: notestack add 'your next todo'\n"
-        help_note_add_str_len = . - help_note_add_str
+        help_note_str_add_len = . - help_note_str_add
         
 str_malformed_file:
         .ascii "error: malformed file: failed to read note stack file header\n"
         strlen_malformed_file = . - str_malformed_file
 
-add_str:
+str_add:
         .asciz "add"
 
-done_str:
+str_done:
         .asciz "done"
 
-peek_str:
+str_peek:
         .asciz "peek"
 
 note_file:
